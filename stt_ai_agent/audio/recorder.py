@@ -16,6 +16,15 @@ class AudioRecorder:
         self.config = config
         self.sample_rate = config["audio"]["sample_rate"]
         self.channels = config["audio"]["channels"]
+        # Set audio devices if specified
+        input_dev = config["audio"].get("input_device")
+        output_dev = config["audio"].get("output_device")
+        if input_dev is not None or output_dev is not None:
+            # sounddevice expects a tuple (input, output) or single int
+            sd.default.device = (
+                input_dev if input_dev is not None else sd.default.device[0],
+                output_dev if output_dev is not None else sd.default.device[1],
+            )
         self.output_dir = Path(config["output"]["audio_output_dir"])
         self.output_dir.mkdir(parents=True, exist_ok=True)
     

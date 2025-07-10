@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: stt-ai-agent:latest
+    # image: stt-ai-agent:latest
     container_name: stt-agent
     environment:
       - WHISPER_DEVICE=cuda
@@ -13,8 +13,6 @@ services:
       - ./output:/app/output
       - ./config:/app/config
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-    devices:
-      - /dev/snd:/dev/snd
     deploy:
       resources:
         reservations:

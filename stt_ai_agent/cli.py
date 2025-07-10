@@ -194,6 +194,27 @@ def setup() -> None:
         raise typer.Exit(1)
 
 
+@app.command("list-devices")
+def list_devices() -> None:
+    """List available audio input and output devices"""
+    console.print(Panel.fit("🎧 Available Audio Devices", style="bold magenta"))
+    import sounddevice as sd
+
+    devices = sd.query_devices()
+    input_devs = [d for d in devices if d['max_input_channels'] > 0]
+    output_devs = [d for d in devices if d['max_output_channels'] > 0]
+
+    console.print("[bold]Input Devices:[/bold]")
+    for idx, dev in enumerate(input_devs):
+        console.print(f"{dev['index']}: {dev['name']} (channels: {dev['max_input_channels']})")
+
+    console.print("\n[bold]Output Devices:[/bold]")
+    for idx, dev in enumerate(output_devs):
+        console.print(f"{dev['index']}: {dev['name']} (channels: {dev['max_output_channels']})")
+
+    console.print("\nUse environment variables AUDIO_INPUT_DEVICE and AUDIO_OUTPUT_DEVICE to set defaults.")
+
+
 def main() -> None:
     """Main entry point."""
     app()

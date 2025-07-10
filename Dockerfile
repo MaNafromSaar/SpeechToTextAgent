@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -30,15 +30,11 @@ RUN python -m pip install --upgrade pip
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for better Docker layer caching
-COPY pyproject.toml .
-COPY requirements.txt* ./
-
-# Install Python dependencies
-RUN pip install -e .
-
-# Copy application code
+# Copy entire project into container for install
 COPY . .
+
+# Install Python dependencies in editable mode
+RUN pip install -e .
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/output /app/config

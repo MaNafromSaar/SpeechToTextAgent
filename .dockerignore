@@ -1,0 +1,25 @@
+# Exclude build artifacts and Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Exclude virtual environment
+venv/
+
+# Exclude local data and output directories
+data/
+output/
+config/
+
+# Exclude Git and environment files
+.git/
+.gitignore
+.env
+.env.*
+
+# Exclude Docker files themselves
+Dockerfile*
+docker-compose.*
+
+# Exclude editor directories
+.vscode/

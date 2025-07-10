@@ -33,6 +33,9 @@ def load_config() -> Dict[str, Any]:
             "channels": int(os.getenv("AUDIO_CHANNELS", "1")),
             "chunk_size": int(os.getenv("AUDIO_CHUNK_SIZE", "1024")),
             "record_seconds": int(os.getenv("AUDIO_RECORD_SECONDS", "30")),
+            # Device IDs for sounddevice (input, output)
+            "input_device": (int(env_input) if (env_input := os.getenv("AUDIO_INPUT_DEVICE")) else None),
+            "output_device": (int(env_output) if (env_output := os.getenv("AUDIO_OUTPUT_DEVICE")) else None),
         },
         
         # Knowledge Base Configuration
