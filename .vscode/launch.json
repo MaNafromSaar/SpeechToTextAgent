@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "STT Agent CLI",
+            "type": "python",
+            "request": "launch",
+            "module": "stt_ai_agent.cli",
+            "args": ["--help"],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/venv/bin/python"
+        },
+        {
+            "name": "STT Agent Setup",
+            "type": "python",
+            "request": "launch",
+            "module": "stt_ai_agent.cli",
+            "args": ["setup"],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/venv/bin/python"
+        },
+        {
+            "name": "STT Agent Record",
+            "type": "python",
+            "request": "launch",
+            "module": "stt_ai_agent.cli",
+            "args": ["record", "--duration", "10"],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/venv/bin/python"
+        }
+    ]
+}

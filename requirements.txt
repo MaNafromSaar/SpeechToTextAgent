@@ -1,0 +1,34 @@
+# STT AI Agent Dependencies
+# Core dependencies for the Speech-to-Text AI Agent
+
+# Audio processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# Speech recognition
+openai-whisper>=20231117
+faster-whisper>=1.0.0
+
+# LLM and text processing
+requests>=2.31.0
+
+# Knowledge base
+chromadb>=0.4.0
+
+# Configuration and environment
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# CLI interface
+typer>=0.9.0
+rich>=13.7.0
+
+# Development dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.9.0
+isort>=5.12.0
+flake8>=6.1.0
+mypy>=1.6.0
+pre-commit>=3.5.0

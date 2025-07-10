@@ -1,0 +1,52 @@
+services:
+  stt-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stt-ai-agent:latest
+    container_name: stt-agent
+    environment:
+      - WHISPER_DEVICE=cuda
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./config:/app/config
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:
+      - /dev/snd:/dev/snd
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+    networks:
+      - stt-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - stt-network
+
+volumes:
+  ollama_data:
+
+networks:
+  stt-network:
+    driver: bridge
