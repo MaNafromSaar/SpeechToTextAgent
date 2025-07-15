@@ -1,29 +1,49 @@
 services:
-  stt-agent:
+  knowledge-service:
     build:
-      context: .
-      dockerfile: Dockerfile
-    # image: stt-ai-agent:latest
-    container_name: stt-agent
+      context: ./knowledge-service
+      dockerfile: Dockerfile.kb
+    ports:
+      - "8001:8001"
     environment:
-      - WHISPER_DEVICE=cuda
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+      - LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
     volumes:
-      - ./data:/app/data
-      - ./output:/app/output
-      - ./config:/app/config
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    depends_on:
-      - ollama
+      - knowledge_data:/app/data
     networks:
       - stt-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  stt-core:
+    build:
+      context: ./stt-core
+      dockerfile: Dockerfile.core
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      knowledge-service:
+        condition: service_healthy
+    networks:
+      - stt-network
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Audio device access
+      - /dev/snd:/dev/snd:rw
+      - /run/user/1000/pulse:/run/user/1000/pulse:rw
+      - /usr/share/alsa:/usr/share/alsa:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   ollama:
     image: ollama/ollama:latest
@@ -44,6 +64,8 @@ services:
 
 volumes:
   ollama_data:
+  knowledge_data:
+    driver: local
 
 networks:
   stt-network:

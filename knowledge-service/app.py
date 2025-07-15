@@ -1,10 +1,14 @@
-"""Knowledge base functionality for storing and retrieving processed text."""
+"""Knowledge Base Service API - Standalone microservice for RAG functionality."""
 
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
 import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+import os
+
 try:
     import chromadb
     from chromadb.config import Settings
@@ -13,24 +17,36 @@ except (ImportError, RuntimeError) as e:
     print(f"ChromaDB not available: {e}")
     CHROMADB_AVAILABLE = False
 
+app = FastAPI(title="Knowledge Base Service", version="1.0.0")
 
-class KnowledgeBase:
-    """Knowledge base for storing and searching processed text entries."""
-    
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize knowledge base with configuration."""
-        self.config = config
-        self.db_path = Path(config["knowledge"]["db_path"])
-        self.vector_db_path = Path(config["knowledge"]["vector_db_path"])
+# Data models
+class EntryCreate(BaseModel):
+    original_text: str
+    processed_text: str
+    format_type: str
+    metadata: Optional[Dict[str, Any]] = None
+
+class EntryUpdate(BaseModel):
+    edited_text: str
+
+class SearchQuery(BaseModel):
+    query: str
+    limit: int = 10
+
+# Global knowledge base instance
+kb = None
+
+class KnowledgeBaseService:
+    def __init__(self):
+        self.db_path = Path("/app/data/knowledge.db")
+        self.vector_db_path = Path("/app/data/vectors")
         
         # Ensure directories exist
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
         
-        # Initialize SQLite database
+        # Initialize databases
         self._init_sqlite()
-        
-        # Initialize vector database for semantic search
         self._init_vector_db()
     
     def _init_sqlite(self) -> None:
@@ -60,7 +76,7 @@ class KnowledgeBase:
                 corrected_word TEXT NOT NULL,
                 context_before TEXT,
                 context_after TEXT,
-                correction_type TEXT, -- 'proper_name', 'terminology', 'mishearing', 'grammar'
+                correction_type TEXT,
                 confidence REAL DEFAULT 1.0,
                 usage_count INTEGER DEFAULT 1,
                 last_used DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -74,31 +90,19 @@ class KnowledgeBase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 term TEXT NOT NULL UNIQUE,
                 definition TEXT,
-                category TEXT, -- 'proper_name', 'technical_term', 'company_name', etc.
+                category TEXT,
                 frequency INTEGER DEFAULT 1,
                 last_used DATETIME DEFAULT CURRENT_TIMESTAMP,
-                variations TEXT -- JSON array of alternative spellings/pronunciations
+                variations TEXT
             )
         """)
         
-        # Create indexes for learning features
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_corrections_original ON corrections(original_word);
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_corrections_corrected ON corrections(corrected_word);
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_terminology_term ON terminology(term);
-        """)
-
-        # Create index for faster searches
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_timestamp ON entries(timestamp);
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_format_type ON entries(format_type);
-        """)
+        # Create indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_corrections_original ON corrections(original_word)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_corrections_corrected ON corrections(corrected_word)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_terminology_term ON terminology(term)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON entries(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_format_type ON entries(format_type)")
         
         conn.commit()
         conn.close()
@@ -112,67 +116,45 @@ class KnowledgeBase:
             return
             
         try:
-            if CHROMADB_AVAILABLE:
-                self.chroma_client = chromadb.PersistentClient(
-                    path=str(self.vector_db_path),
-                    settings=Settings(anonymized_telemetry=False)
-                )
-                
-                # Get or create collection
-                self.collection = self.chroma_client.get_or_create_collection(
-                    name="stt_knowledge",
-                    metadata={"description": "STT AI Agent Knowledge Base"}
-                )
-            else:
-                self.chroma_client = None
-                self.collection = None
+            self.chroma_client = chromadb.PersistentClient(
+                path=str(self.vector_db_path),
+                settings=Settings(anonymized_telemetry=False)
+            )
+            
+            self.collection = self.chroma_client.get_or_create_collection(
+                name="stt_knowledge",
+                metadata={"description": "STT AI Agent Knowledge Base"}
+            )
+            print("ChromaDB initialized successfully")
         except Exception as e:
             print(f"Warning: Vector database initialization failed: {e}")
             self.chroma_client = None
             self.collection = None
     
-    def save_entry(
-        self, 
-        original_text: str, 
-        processed_text: str, 
-        format_type: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> int:
-        """
-        Save a new entry to the knowledge base.
-        
-        Args:
-            original_text: Original transcribed text
-            processed_text: Processed/improved text
-            format_type: Type of processing applied
-            metadata: Optional additional metadata
-            
-        Returns:
-            Entry ID
-        """
-        # Save to SQLite
+    def save_entry(self, entry: EntryCreate) -> int:
+        """Save a new entry to the knowledge base."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        metadata_json = json.dumps(metadata) if metadata else None
+        metadata_json = json.dumps(entry.metadata) if entry.metadata else None
         
         cursor.execute("""
             INSERT INTO entries (original_text, processed_text, format_type, metadata)
             VALUES (?, ?, ?, ?)
-        """, (original_text, processed_text, format_type, metadata_json))
+        """, (entry.original_text, entry.processed_text, entry.format_type, metadata_json))
         
         entry_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        # Save to vector database for semantic search (only if available)
+        # Save to vector database
         if CHROMADB_AVAILABLE and self.collection is not None:
             try:
                 self.collection.add(
-                    documents=[processed_text],
+                    documents=[entry.processed_text],
                     metadatas=[{
                         "entry_id": entry_id,
-                        "format_type": format_type,
+                        "format_type": entry.format_type,
                         "timestamp": datetime.now().isoformat()
                     }],
                     ids=[f"entry_{entry_id}"]
@@ -183,19 +165,10 @@ class KnowledgeBase:
         return entry_id
     
     def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        Search knowledge base entries.
-        
-        Args:
-            query: Search query
-            limit: Maximum number of results
-            
-        Returns:
-            List of matching entries
-        """
+        """Search knowledge base entries."""
         results = []
         
-        # Semantic search using vector database (only if ChromaDB is available)
+        # Semantic search using vector database
         if CHROMADB_AVAILABLE and self.collection is not None:
             try:
                 vector_results = self.collection.query(
@@ -203,31 +176,25 @@ class KnowledgeBase:
                     n_results=limit
                 )
                 
-                # Safely extract entry IDs
-                if (hasattr(vector_results, 'get') and 
+                if (vector_results and 
                     vector_results.get("metadatas") and 
-                    isinstance(vector_results["metadatas"], list) and
                     len(vector_results["metadatas"]) > 0):
                     
                     entry_ids = []
                     for metadata in vector_results["metadatas"][0]:
                         if isinstance(metadata, dict) and "entry_id" in metadata:
-                            entry_id = metadata["entry_id"]
-                            if entry_id is not None and isinstance(entry_id, (int, str)):
-                                try:
-                                    entry_ids.append(int(entry_id))
-                                except (ValueError, TypeError):
-                                    continue
+                            try:
+                                entry_ids.append(int(metadata["entry_id"]))
+                            except (ValueError, TypeError):
+                                continue
                     
-                    # Get full entries from SQLite
                     if entry_ids:
                         results = self._get_entries_by_ids(entry_ids)
-                    
+                        
             except Exception as e:
                 print(f"Warning: Vector search failed: {e}")
-                results = []
         
-        # Fallback to text search in SQLite if vector search failed
+        # Fallback to text search
         if not results:
             results = self._text_search(query, limit)
         
@@ -289,15 +256,7 @@ class KnowledgeBase:
         return entries
     
     def list_entries(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        List recent entries.
-        
-        Args:
-            limit: Maximum number of entries to return
-            
-        Returns:
-            List of recent entries
-        """
+        """List recent entries."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -326,31 +285,6 @@ class KnowledgeBase:
         entries = self._get_entries_by_ids([entry_id])
         return entries[0] if entries else None
     
-    def delete_entry(self, entry_id: int) -> bool:
-        """Delete an entry from the knowledge base."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
-        deleted = cursor.rowcount > 0
-        
-        conn.commit()
-        conn.close()
-        
-        # Also remove from vector database (only if available)
-        if CHROMADB_AVAILABLE and self.collection is not None and deleted:
-            try:
-                self.collection.delete(ids=[f"entry_{entry_id}"])
-            except Exception as e:
-                print(f"Warning: Failed to delete from vector database: {e}")
-        
-        return deleted
-    
-    def initialize(self) -> None:
-        """Initialize the knowledge base (called during setup)."""
-        # This method is called during setup to ensure everything is properly initialized
-        pass
-
     def update_edited_text(self, entry_id: int, edited_text: str) -> bool:
         """Update the edited text for an entry and learn from corrections."""
         conn = sqlite3.connect(self.db_path)
@@ -391,27 +325,21 @@ class KnowledgeBase:
         original_words = original.split()
         corrected_words = corrected.split()
         
-        # Use difflib to find word-level changes
         matcher = difflib.SequenceMatcher(None, original_words, corrected_words)
         
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == 'replace':
-                # Word was changed
                 original_word = ' '.join(original_words[i1:i2])
                 corrected_word = ' '.join(corrected_words[j1:j2])
                 
-                # Get context
                 context_before = ' '.join(original_words[max(0, i1-2):i1])
                 context_after = ' '.join(original_words[i2:min(len(original_words), i2+2)])
                 
-                # Determine correction type
                 correction_type = self._classify_correction(original_word, corrected_word)
                 
-                # Store or update correction
                 self._store_correction(conn, entry_id, original_word, corrected_word, 
                                      context_before, context_after, correction_type)
                 
-                # Add to terminology if it's a proper name or technical term
                 if correction_type in ['proper_name', 'terminology']:
                     self._store_terminology(conn, corrected_word, correction_type)
     
@@ -419,7 +347,6 @@ class KnowledgeBase:
         """Classify the type of correction made."""
         import difflib
         
-        # Simple heuristics for classification
         if corrected[0].isupper() and not original[0].isupper():
             return 'proper_name'
         elif len(corrected.split()) == 1 and corrected.istitle():
@@ -441,7 +368,6 @@ class KnowledgeBase:
         """Store a correction in the database."""
         cursor = conn.cursor()
         
-        # Check if this correction already exists
         cursor.execute("""
             SELECT id, usage_count FROM corrections 
             WHERE original_word = ? AND corrected_word = ?
@@ -449,7 +375,6 @@ class KnowledgeBase:
         
         row = cursor.fetchone()
         if row:
-            # Update existing correction
             correction_id, usage_count = row
             cursor.execute("""
                 UPDATE corrections 
@@ -457,7 +382,6 @@ class KnowledgeBase:
                 WHERE id = ?
             """, (usage_count + 1, correction_id))
         else:
-            # Insert new correction
             cursor.execute("""
                 INSERT INTO corrections 
                 (entry_id, original_word, corrected_word, context_before, context_after, correction_type)
@@ -496,7 +420,6 @@ class KnowledgeBase:
         
         try:
             for i, word in enumerate(words):
-                # Look for exact matches
                 cursor.execute("""
                     SELECT corrected_word, usage_count, correction_type
                     FROM corrections 
@@ -513,61 +436,9 @@ class KnowledgeBase:
                         'confidence': min(1.0, usage_count / 10.0),
                         'type': correction_type
                     })
-                
-                # Look for fuzzy matches for potential mishearings
-                cursor.execute("""
-                    SELECT original_word, corrected_word, usage_count
-                    FROM corrections 
-                    WHERE correction_type = 'mishearing'
-                    ORDER BY usage_count DESC
-                """)
-                
-                for original_word, corrected_word, usage_count in cursor.fetchall():
-                    similarity = difflib.SequenceMatcher(None, word.lower(), original_word.lower()).ratio()
-                    if similarity > 0.8 and word != original_word:
-                        suggestions.append({
-                            'position': i,
-                            'original': word,
-                            'suggestion': corrected_word,
-                            'confidence': similarity * min(1.0, usage_count / 10.0),
-                            'type': 'fuzzy_match'
-                        })
             
             return sorted(suggestions, key=lambda x: x['confidence'], reverse=True)
             
-        finally:
-            conn.close()
-    
-    def get_terminology(self, category: Optional[str] = None) -> List[Dict]:
-        """Get stored terminology, optionally filtered by category."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        try:
-            if category:
-                cursor.execute("""
-                    SELECT term, definition, category, frequency, variations
-                    FROM terminology 
-                    WHERE category = ?
-                    ORDER BY frequency DESC, last_used DESC
-                """, (category,))
-            else:
-                cursor.execute("""
-                    SELECT term, definition, category, frequency, variations
-                    FROM terminology 
-                    ORDER BY frequency DESC, last_used DESC
-                """)
-            
-            return [
-                {
-                    'term': row[0],
-                    'definition': row[1],
-                    'category': row[2],
-                    'frequency': row[3],
-                    'variations': json.loads(row[4]) if row[4] else []
-                }
-                for row in cursor.fetchall()
-            ]
         finally:
             conn.close()
     
@@ -598,3 +469,89 @@ class KnowledgeBase:
             }
         finally:
             conn.close()
+
+# API Routes
+@app.on_event("startup")
+async def startup_event():
+    global kb
+    kb = KnowledgeBaseService()
+    print("Knowledge Base Service started successfully!")
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "Knowledge Base Service"}
+
+@app.post("/entries")
+async def create_entry(entry: EntryCreate):
+    """Create a new knowledge base entry."""
+    try:
+        entry_id = kb.save_entry(entry)
+        return {"entry_id": entry_id, "status": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/entries")
+async def list_entries(limit: int = 50):
+    """List recent entries."""
+    try:
+        entries = kb.list_entries(limit)
+        return {"entries": entries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/entries/{entry_id}")
+async def get_entry(entry_id: int):
+    """Get a specific entry by ID."""
+    try:
+        entry = kb.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        return entry
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/entries/{entry_id}/edit")
+async def update_entry(entry_id: int, update: EntryUpdate):
+    """Update an entry with edited text and learn from corrections."""
+    try:
+        success = kb.update_edited_text(entry_id, update.edited_text)
+        if not success:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        return {"status": "updated", "learned": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/search")
+async def search_entries(query: SearchQuery):
+    """Search knowledge base entries."""
+    try:
+        results = kb.search(query.query, query.limit)
+        return {"results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/corrections/{text}")
+async def get_corrections(text: str):
+    """Get correction suggestions for text."""
+    try:
+        suggestions = kb.get_corrections_for_text(text)
+        return {"suggestions": suggestions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/stats")
+async def get_stats():
+    """Get knowledge base statistics."""
+    try:
+        stats = kb.get_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)

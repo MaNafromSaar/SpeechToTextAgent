@@ -1,33 +1,46 @@
-# STT AI Agent
+# STT AI Agent - Containerized Microservices
 
-A local AI agent for German speech-to-text transcription, intelligent text processing, and knowledge base management.
+A sophisticated Speech-to-Text AI agent with intelligent text processing and learning capabilities, built as containerized microservices for better scalability and deployment flexibility.
 
-## Features
+## 🏗️ Architecture
 
-- 🎤 **Audio Capture**: Record microphone input with high-quality audio processing
-- 🗣️ **German STT**: Transcribe German speech using Whisper (local processing)
-- 📝 **Text Transformation**: Convert transcriptions into various formats (email, letter, flowtext, table, list)
-- ✏️ **Intelligent Revision**: Grammar fixes, style improvements, and better phrasing suggestions
-- 🌍 **Translation**: Optional translation to French or English
-- 🧠 **Knowledge Base**: Growing knowledge repository with manual addition capability
-- 🐳 **Containerized**: Docker support to avoid Python dependency hell
-- 🚀 **GPU Accelerated**: CUDA support for faster processing
+The system is now split into separate containerized services:
 
-## Quick Start
+- **STT Core Service** (`stt-core/`) - Lightweight transcription and text processing
+- **Knowledge Base Service** (`knowledge-service/`) - RAG learning and knowledge management  
+- **Ollama** - Local LLM for text correction and processing
 
-### Prerequisites
+## � Quick Start
 
-- WSL2 Ubuntu with NVIDIA drivers (for GPU support)
-- Docker with NVIDIA Container Toolkit
-- Python 3.10+ (for local development)
+1. **Start the system:**
+   ```bash
+   ./start.sh
+   ```
 
-### Using Docker (Recommended)
+2. **Test the system:**
+   ```bash
+   python3 test_system.py
+   ```
 
-```bash
-# Build the container
-docker-compose up --build
+3. **Access the services:**
+   - STT Core API: http://localhost:8000/docs
+   - Knowledge Base API: http://localhost:8001/docs
+   - Ollama: http://localhost:11434
 
-# Run STT agent
+## 📡 API Endpoints
+
+### STT Core Service (Port 8000)
+- `POST /transcribe` - Upload audio file for transcription and processing
+- `POST /process-text` - Process text without transcription
+- `GET /knowledge/search` - Search knowledge base through STT service
+- `GET /health` - Service health check
+
+### Knowledge Base Service (Port 8001)  
+- `POST /entries` - Add new knowledge entry
+- `GET /entries` - List entries with pagination
+- `POST /search` - Semantic search through knowledge base
+- `GET /corrections/{text}` - Get correction suggestions
+- `GET /health` - Service health check
 docker-compose exec stt-agent stt-agent --help
 ```
 

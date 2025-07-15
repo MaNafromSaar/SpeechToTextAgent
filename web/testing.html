@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STT Testing Interface</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .test-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border-left: 5px solid #3498db;
+        }
+        
+        .test-section h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .recording-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        button.recording {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+        }
+        
+        .upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #2980b9;
+            background: rgba(52, 152, 219, 0.05);
+        }
+        
+        .upload-area.dragover {
+            border-color: #27ae60;
+            background: rgba(39, 174, 96, 0.1);
+        }
+        
+        select {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            background: white;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        
+        .audio-player {
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        .result-area {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            min-height: 100px;
+        }
+        
+        .result-area h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .result-text {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+        
+        .original-text {
+            border-left: 3px solid #f39c12;
+        }
+        
+        .transcribed-text {
+            border-left: 3px solid #3498db;
+        }
+        
+        .corrected-text {
+            border-left: 3px solid #27ae60;
+        }
+        
+        .status {
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.processing {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+            .recording-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+        
+        .model-selector {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .emoji {
+            font-size: 1.5em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 STT Agent Testing Interface</h1>
+        
+        <!-- Model Selection -->
+        <div class="model-selector">
+            <h3>🤖 Model Configuration</h3>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+                <div>
+                    <label for="asrModel"><strong>ASR Model:</strong></label>
+                    <select id="asrModel">
+                        <option value="whisper">Whisper Large-v3 (German Optimized)</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="correctionModel"><strong>German Correction Model:</strong></label>
+                    <select id="correctionModel">
+                        <option value="phi3.5:3.8b">Phi 3.5 3.8B (Primary - Best German)</option>
+                        <option value="mistral:7b">Mistral 7B (Secondary German)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Step 1: Audio Recording/Upload -->
+        <div class="test-section">
+            <h2><span class="emoji">🎙️</span> Step 1: Audio Input</h2>
+            
+            <div class="recording-controls">
+                <select id="deviceSelect">
+                    <option value="">Select Microphone...</option>
+                </select>
+                <button id="recordBtn">Start Recording</button>
+                <button id="stopBtn" disabled>Stop Recording</button>
+                <span id="recordingTime">00:00</span>
+            </div>
+            
+            <div class="upload-area" id="uploadArea">
+                <p><strong>Or drag & drop an audio file here</strong></p>
+                <p>Supported formats: MP3, WAV, M4A, WebM</p>
+                <input type="file" id="audioUpload" accept="audio/*" style="display: none;">
+            </div>
+            
+            <audio id="audioPlayer" class="audio-player" controls style="display: none;"></audio>
+            
+            <div id="audioStatus" class="status" style="display: none;"></div>
+        </div>
+        
+        <!-- Step 2: Transcription Testing -->
+        <div class="test-section">
+            <h2><span class="emoji">📝</span> Step 2: Transcription</h2>
+            
+            <div class="recording-controls">
+                <button id="transcribeBtn" disabled>Transcribe Audio</button>
+                <button id="testTranscriptionBtn">Test Current Model</button>
+            </div>
+            
+            <div id="transcriptionStatus" class="status" style="display: none;"></div>
+            
+            <div class="result-area">
+                <h3>Transcription Result:</h3>
+                <div id="transcriptionResult" class="result-text transcribed-text">
+                    No transcription yet...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Step 3: Text Correction Testing -->
+        <div class="test-section">
+            <h2><span class="emoji">✏️</span> Step 3: Text Correction</h2>
+            
+            <div class="recording-controls">
+                <button id="correctBtn" disabled>Correct Text</button>
+                <button id="testCorrectionBtn">Test with Sample Text</button>
+            </div>
+            
+            <div id="correctionStatus" class="status" style="display: none;"></div>
+            
+            <div class="result-area">
+                <h3>Correction Result:</h3>
+                <div id="correctionResult" class="result-text corrected-text">
+                    No correction yet...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Step 4: Comparison View -->
+        <div class="test-section">
+            <h2><span class="emoji">🔍</span> Step 4: Full Comparison</h2>
+            
+            <div class="comparison-grid">
+                <div class="result-area">
+                    <h3>🔊 Original Audio</h3>
+                    <audio id="comparisonAudio" controls style="width: 100%;"></audio>
+                </div>
+                
+                <div class="result-area">
+                    <h3>📝 Transcription</h3>
+                    <div id="comparisonTranscription" class="result-text transcribed-text">
+                        No transcription...
+                    </div>
+                </div>
+                
+                <div class="result-area">
+                    <h3>✏️ Corrected Text</h3>
+                    <div id="comparisonCorrection" class="result-text corrected-text">
+                        No correction...
+                    </div>
+                </div>
+            </div>
+            
+            <div class="recording-controls" style="margin-top: 20px;">
+                <button id="runFullPipelineBtn" disabled>🚀 Run Complete Pipeline</button>
+                <button id="exportResultsBtn" disabled>📊 Export Results</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let mediaRecorder;
+        let audioChunks = [];
+        let currentAudioBlob = null;
+        let currentTranscription = '';
+        let currentCorrection = '';
+        let recordingStartTime;
+        let recordingTimer;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDevices();
+            setupEventListeners();
+        });
+
+        // Device initialization
+        async function initializeDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputs = devices.filter(device => device.kind === 'audioinput');
+                const select = document.getElementById('deviceSelect');
+                
+                select.innerHTML = '<option value="">Select Microphone...</option>';
+                audioInputs.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || `Microphone ${select.children.length}`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error enumerating devices:', error);
+            }
+        }
+
+        // Event listeners
+        function setupEventListeners() {
+            // Recording controls
+            document.getElementById('recordBtn').addEventListener('click', startRecording);
+            document.getElementById('stopBtn').addEventListener('click', stopRecording);
+            
+            // File upload
+            const uploadArea = document.getElementById('uploadArea');
+            const audioUpload = document.getElementById('audioUpload');
+            
+            uploadArea.addEventListener('click', () => audioUpload.click());
+            uploadArea.addEventListener('dragover', handleDragOver);
+            uploadArea.addEventListener('drop', handleDrop);
+            audioUpload.addEventListener('change', handleFileSelect);
+            
+            // Processing buttons
+            document.getElementById('transcribeBtn').addEventListener('click', transcribeAudio);
+            document.getElementById('correctBtn').addEventListener('click', correctText);
+            document.getElementById('runFullPipelineBtn').addEventListener('click', runFullPipeline);
+            
+            // Test buttons
+            document.getElementById('testTranscriptionBtn').addEventListener('click', testTranscription);
+            document.getElementById('testCorrectionBtn').addEventListener('click', testCorrection);
+            document.getElementById('exportResultsBtn').addEventListener('click', exportResults);
+        }
+
+        // Recording functions
+        async function startRecording() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            if (!deviceId) {
+                showStatus('audioStatus', 'Please select a microphone first.', 'error');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { deviceId: { exact: deviceId } }
+                });
+
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    handleAudioReady(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                recordingStartTime = Date.now();
+                
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('recordBtn').textContent = 'Recording...';
+                document.getElementById('recordBtn').classList.add('recording');
+                document.getElementById('stopBtn').disabled = false;
+                
+                startRecordingTimer();
+                showStatus('audioStatus', 'Recording started...', 'processing');
+                
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                showStatus('audioStatus', 'Error accessing microphone: ' + error.message, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                clearInterval(recordingTimer);
+                
+                document.getElementById('recordBtn').disabled = false;
+                document.getElementById('recordBtn').textContent = 'Start Recording';
+                document.getElementById('recordBtn').classList.remove('recording');
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('recordingTime').textContent = '00:00';
+                
+                showStatus('audioStatus', 'Recording completed!', 'success');
+            }
+        }
+
+        function startRecordingTimer() {
+            recordingTimer = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                const seconds = (elapsed % 60).toString().padStart(2, '0');
+                document.getElementById('recordingTime').textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        // File handling
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect({ target: { files: files } });
+            }
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('audio/')) {
+                handleAudioReady(file);
+                showStatus('audioStatus', `File "${file.name}" loaded successfully!`, 'success');
+            } else {
+                showStatus('audioStatus', 'Please select a valid audio file.', 'error');
+            }
+        }
+
+        function handleAudioReady(audioBlob) {
+            currentAudioBlob = audioBlob;
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            const audioPlayer = document.getElementById('audioPlayer');
+            const comparisonAudio = document.getElementById('comparisonAudio');
+            
+            audioPlayer.src = audioUrl;
+            audioPlayer.style.display = 'block';
+            comparisonAudio.src = audioUrl;
+            
+            document.getElementById('transcribeBtn').disabled = false;
+            document.getElementById('runFullPipelineBtn').disabled = false;
+        }
+
+        // API calls
+        async function transcribeAudio() {
+            if (!currentAudioBlob) return;
+
+            const asrModel = document.getElementById('asrModel').value;
+            showStatus('transcriptionStatus', `Transcribing with ${asrModel}...`, 'processing');
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', currentAudioBlob, 'audio.wav');
+                formData.append('asr_model', asrModel);
+
+                const response = await fetch('http://localhost:8000/transcribe-only', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    currentTranscription = result.transcription || '';
+                    
+                    document.getElementById('transcriptionResult').textContent = currentTranscription;
+                    document.getElementById('comparisonTranscription').textContent = currentTranscription;
+                    document.getElementById('correctBtn').disabled = false;
+                    
+                    showStatus('transcriptionStatus', `Transcription completed! (${result.audio_duration}s audio)`, 'success');
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Transcription error:', error);
+                showStatus('transcriptionStatus', 'Transcription failed: ' + error.message, 'error');
+            }
+        }
+
+        async function correctText() {
+            if (!currentTranscription) return;
+
+            const correctionModel = document.getElementById('correctionModel').value;
+            showStatus('correctionStatus', `Correcting with ${correctionModel}...`, 'processing');
+            
+            try {
+                const response = await fetch('http://localhost:8000/correct-text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: currentTranscription })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    currentCorrection = result.corrected_text || '';
+                    
+                    document.getElementById('correctionResult').textContent = currentCorrection;
+                    document.getElementById('comparisonCorrection').textContent = currentCorrection;
+                    document.getElementById('exportResultsBtn').disabled = false;
+                    
+                    showStatus('correctionStatus', `Text correction completed!`, 'success');
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Correction error:', error);
+                showStatus('correctionStatus', 'Text correction failed: ' + error.message, 'error');
+            }
+        }
+
+        async function runFullPipeline() {
+            if (!currentAudioBlob) return;
+
+            showStatus('transcriptionStatus', 'Running full pipeline...', 'processing');
+            showStatus('correctionStatus', '', '');
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', currentAudioBlob, 'audio.wav');
+
+                const response = await fetch('http://localhost:8000/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    currentTranscription = result.original_text || '';
+                    currentCorrection = result.processed_text || '';
+                    
+                    document.getElementById('transcriptionResult').textContent = currentTranscription;
+                    document.getElementById('correctionResult').textContent = currentCorrection;
+                    document.getElementById('comparisonTranscription').textContent = currentTranscription;
+                    document.getElementById('comparisonCorrection').textContent = currentCorrection;
+                    
+                    document.getElementById('correctBtn').disabled = false;
+                    document.getElementById('exportResultsBtn').disabled = false;
+                    
+                    showStatus('transcriptionStatus', 'Full pipeline completed!', 'success');
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Pipeline error:', error);
+                showStatus('transcriptionStatus', 'Pipeline failed: ' + error.message, 'error');
+            }
+        }
+
+        // Test functions
+        function testTranscription() {
+            const sampleText = "Dies ist ein Test der Transkriptionsfunktion.";
+            document.getElementById('transcriptionResult').textContent = sampleText;
+            currentTranscription = sampleText;
+            document.getElementById('correctBtn').disabled = false;
+            showStatus('transcriptionStatus', 'Sample transcription loaded for testing.', 'success');
+        }
+
+        function testCorrection() {
+            const sampleText = "Hallo, Bente. Kratuliert habe ich dir ja schon. Aber ich freue mich natürlich auch, jetzt zu deiner Partie zu kommen.";
+            document.getElementById('transcriptionResult').textContent = sampleText;
+            currentTranscription = sampleText;
+            correctText();
+        }
+
+        // Utility functions
+        function showStatus(elementId, message, type) {
+            const statusEl = document.getElementById(elementId);
+            if (message) {
+                statusEl.textContent = message;
+                statusEl.className = `status ${type}`;
+                statusEl.style.display = 'block';
+            } else {
+                statusEl.style.display = 'none';
+            }
+        }
+
+        function exportResults() {
+            const results = {
+                timestamp: new Date().toISOString(),
+                asr_model: document.getElementById('asrModel').value,
+                correction_model: document.getElementById('correctionModel').value,
+                transcription: currentTranscription,
+                correction: currentCorrection
+            };
+
+            const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `stt-test-results-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>

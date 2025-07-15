@@ -1,0 +1,57 @@
+services:
+  stt-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stt-agent
+    environment:
+      - WHISPER_DEVICE=cuda
+      - OLLAMA_BASE_URL=http://ollama:11434
+      # Basic audio environment
+      - AUDIO_SAMPLE_RATE=16000
+      - AUDIO_CHANNELS=1
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./config:/app/config
+      # Basic audio device access (safer)
+      - /dev/snd:/dev/snd:rw
+    devices:
+      - /dev/snd:/dev/snd
+    # Remove privileged mode for testing
+    # privileged: true
+    networks:
+      - stt-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - stt-network
+
+volumes:
+  ollama_data:
+
+networks:
+  stt-network:
+    driver: bridge

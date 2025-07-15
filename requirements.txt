@@ -5,16 +5,25 @@
 sounddevice>=0.4.6
 soundfile>=0.12.1
 numpy>=1.24.0
+librosa>=0.10.0
+torchaudio>=2.0.0
 
 # Speech recognition
 openai-whisper>=20231117
 faster-whisper>=1.0.0
+transformers>=4.30.0
+torch>=2.0.0
 
 # LLM and text processing
 requests>=2.31.0
 
 # Knowledge base
 chromadb>=0.4.0
+
+# Web API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
 
 # Configuration and environment
 python-dotenv>=1.0.0

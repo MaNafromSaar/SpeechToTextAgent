@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Install system dependencies
+# Install system dependencies including professional audio support
 RUN apt-get update && apt-get install -y \
     python3.10 \
     python3.10-dev \
@@ -16,9 +16,20 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libffi-dev \
     libssl-dev \
+    # Audio system libraries
     libasound2-dev \
     portaudio19-dev \
+    pulseaudio \
+    pulseaudio-utils \
+    alsa-utils \
+    alsa-base \
+    jack-audio-connection-kit \
+    libjack-jackd2-dev \
     ffmpeg \
+    libsndfile1-dev \
+    # Additional audio libraries for professional interfaces
+    libportaudio2 \
+    libportaudiocpp0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create symlink for python
@@ -30,11 +41,17 @@ RUN python -m pip install --upgrade pip
 # Set working directory
 WORKDIR /app
 
-# Copy entire project into container for install
+# Copy only dependency files first for better layer caching
+COPY requirements.txt pyproject.toml ./
+
+# Install Python dependencies first (this layer will be cached unless dependencies change)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code (this will invalidate cache only when code changes)
 COPY . .
 
-# Install Python dependencies in editable mode
-RUN pip install -e .
+# Install the package in editable mode
+RUN pip install --no-cache-dir -e .
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/output /app/config
