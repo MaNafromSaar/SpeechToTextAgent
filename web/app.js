@@ -58,6 +58,12 @@ class STTAudioRecorder {
                     option.textContent = this.getModelDisplayName(model);
                     textModelSelect.appendChild(option);
                 });
+                // Set 'mistral:7b' as default if available
+                if (models.text_models.includes('mistral:7b')) {
+                    textModelSelect.value = 'mistral:7b';
+                } else {
+                    textModelSelect.selectedIndex = 0;
+                }
             }
             
             // Update task types if available
@@ -480,7 +486,7 @@ class STTAudioRecorder {
             if (enableProcessing) {
                 formData.append('process_text', 'true');
                 formData.append('format_type', document.getElementById('taskType').value || 'improve');
-                formData.append('text_model', document.getElementById('textModel').value || 'llama3');
+                formData.append('text_model', document.getElementById('textModel').value || 'mistral:7b');
                 
                 const taskType = document.getElementById('taskType').value;
                 if (taskType === 'translate') {
@@ -852,7 +858,7 @@ class STTAudioRecorder {
             const formData = new FormData();
             formData.append('text', customText);
             formData.append('task_type', document.getElementById('taskType').value || 'improve');
-            formData.append('model', document.getElementById('textModel').value || 'llama3');
+            formData.append('model', document.getElementById('textModel').value || 'mistral:7b');
             
             const taskType = document.getElementById('taskType').value;
             if (taskType === 'translate') {
