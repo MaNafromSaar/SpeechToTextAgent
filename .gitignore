@@ -153,3 +153,4 @@ ollama_data/
 # ChromaDB
 vectors/
 chroma.sqlite3
+cpp/prog
