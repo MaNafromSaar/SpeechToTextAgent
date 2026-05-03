@@ -13,6 +13,20 @@ WORKDIR /app
 COPY requirements-core.txt .
 
 # Install Python dependencies
+# Step 1: build tools needed by openai-whisper
+RUN pip install --no-cache-dir "setuptools<72" wheel
+
+# Step 2: torch CPU first — must be installed BEFORE whisper
+# so whisper's loose torch>=1.x dep is already satisfied and
+# pip won't pull the latest 900MB CUDA torch
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    torch==2.1.0+cpu numpy==1.24.3
+
+# Step 3: whisper — no-build-isolation so it sees our setuptools/pkg_resources
+    RUN pip install --no-cache-dir --no-build-isolation openai-whisper==20231117
+
+# Step 4: remaining app deps
 RUN pip install --no-cache-dir -r requirements-core.txt
 
 # Copy application code

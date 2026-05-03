@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, Literal
 import subprocess
+import os
 import whisper
 import torch
 
@@ -33,27 +34,32 @@ OLLAMA_URL = "http://ollama:11434"
 
 # ASR Models
 whisper_model = None
+whisper_model_name = None
+whisper_models_cache = {}  # name -> loaded model
 
 @app.on_event("startup")
 async def startup_event():
-    global whisper_model
+    global whisper_model, whisper_model_name
     print("Loading Whisper model...")
-    # Use GPU if available, otherwise CPU
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Use larger model for better German recognition
-    model_name = "large-v3"  # Better for German language
+    device = os.environ.get("WHISPER_DEVICE", "cpu")
+    model_name = os.environ.get("WHISPER_MODEL", "large-v3")
     try:
         whisper_model = whisper.load_model(model_name, device=device)
+        whisper_model_name = model_name
+        whisper_models_cache[model_name] = whisper_model
         print(f"Whisper model '{model_name}' loaded on {device}")
     except Exception as e:
         print(f"Failed to load {model_name}, falling back to base: {e}")
         whisper_model = whisper.load_model("base", device=device)
+        whisper_model_name = "base"
+        whisper_models_cache["base"] = whisper_model
         print(f"Whisper model 'base' loaded on {device}")
 
 # Data models
 class ProcessRequest(BaseModel):
     text: str
     format_type: str = "ollama_correction"
+    correction_model: Optional[str] = None
 
 class ProcessResponse(BaseModel):
     original_text: str
@@ -129,13 +135,25 @@ def convert_audio_to_wav(input_path: str, output_path: str) -> bool:
         print("ffmpeg not found")
         return False
 
+def get_whisper_model(name: str):
+    """Return loaded whisper model by name, loading lazily if needed."""
+    global whisper_model, whisper_model_name
+    device = os.environ.get("WHISPER_DEVICE", "cpu")
+    # Normalize selector values to whisper model names
+    name_map = {"whisper": whisper_model_name or "large-v3",
+                "whisper-large": "large-v3",
+                "whisper-medium": "medium"}
+    resolved = name_map.get(name, name)
+    if resolved not in whisper_models_cache:
+        print(f"Lazy-loading whisper model '{resolved}'...")
+        whisper_models_cache[resolved] = whisper.load_model(resolved, device=device)
+        print(f"Model '{resolved}' loaded.")
+    return whisper_models_cache[resolved]
+
 def transcribe_audio(audio_path: str) -> str:
-    """Transcribe audio using Whisper."""
-    global whisper_model
-    
+    """Transcribe audio using the default loaded Whisper model."""
     if whisper_model is None:
         raise HTTPException(status_code=500, detail="Whisper model not loaded")
-    
     try:
         result = whisper_model.transcribe(audio_path, language="de")
         return result["text"].strip()
@@ -144,22 +162,35 @@ def transcribe_audio(audio_path: str) -> str:
         raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
 
 def transcribe_audio_with_model(audio_path: str, asr_model: str) -> str:
-    """Transcribe audio using specified ASR model (Whisper only)."""
-    if asr_model != "whisper":
-        raise HTTPException(status_code=400, detail="Only Whisper model is supported")
-    
-    return transcribe_audio(audio_path)
+    """Transcribe audio using the named model (supports whisper-large / whisper-medium)."""
+    model = get_whisper_model(asr_model)
+    try:
+        result = model.transcribe(audio_path, language="de")
+        return result["text"].strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
 
-def process_text_with_ollama(text: str) -> str:
-    """Process text using Ollama with German-optimized model."""
-    # List of models to try in order of preference for German (updated based on testing)
-    german_models = ["phi3.5:3.8b", "mistral:7b", "thinkverse/towerinstruct:latest", "llama3.2:3b"]
-    
+# Current models ranked for German correction on CPU (updated 2025)
+# gemma3:4b ~3GB, qwen2.5:7b ~4.7GB, mistral:7b ~4.1GB, llama3.2:3b ~2GB
+GERMAN_CORRECTION_MODELS = [
+    "gemma3:4b",
+    "qwen2.5:7b",
+    "mistral:7b",
+    "llama3.2:3b",
+]
+
+def process_text_with_ollama(text: str, preferred_model: str = None) -> str:
+    """Correct German text using Ollama. Tries preferred_model first, then falls back."""
+    # Build try order: preferred first, then rest of the list
+    order = ([preferred_model] if preferred_model else []) + [
+        m for m in GERMAN_CORRECTION_MODELS if m != preferred_model
+    ]
+
     prompt = f"""Korrigiere bitte den folgenden deutschen Text. Behalte den ursprünglichen Inhalt und Stil bei. Verbessere nur Grammatik, Rechtschreibung und natürlichen Wortfluss. Antworte nur mit dem korrigierten Text:
 
 {text}"""
 
-    for model in german_models:
+    for model in order:
         try:
             response = requests.post(f"{OLLAMA_URL}/api/generate", json={
                 "model": model,
@@ -171,18 +202,18 @@ def process_text_with_ollama(text: str) -> str:
                     "keep_alive": "5m"
                 }
             }, timeout=120)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 corrected_text = result.get("response", text).strip()
-                print(f"Text processed successfully with model: {model}")
+                print(f"Text corrected with model: {model}")
                 return corrected_text
-                
+
         except Exception as e:
             print(f"Failed to process with {model}: {e}")
             continue
-    
-    print("All German models failed, returning original text")
+
+    print("All correction models failed, returning original text")
     return text
 
 @app.get("/health")
@@ -206,9 +237,9 @@ async def health():
                 text_processing_available = True
                 
                 # Check which German models are available
-                german_models = ["mistral:7b", "phi3.5:3.8b", "thinkverse/towerinstruct:latest", "llama3.2:3b"]
+                german_models = GERMAN_CORRECTION_MODELS
                 model_names = [model["name"] for model in models_data]
-                available_german_models = [model for model in german_models if model in model_names]
+                available_german_models = [m for m in german_models if m in model_names]
                 
     except Exception as e:
         print(f"Health check failed: {e}")
@@ -229,7 +260,8 @@ async def transcribe_and_process(
     language: str = Form("de"),
     model: str = Form("base"),
     process_text: str = Form("true"),
-    asr_model: str = Form("whisper")
+    asr_model: str = Form("whisper"),
+    correction_model: str = Form(None)
 ):
     """Transcribe audio file and process the text with selectable ASR model."""
     
@@ -252,7 +284,7 @@ async def transcribe_and_process(
         transcript = transcribe_audio_with_model(audio_path, asr_model)
         
         # Process with Ollama
-        processed_text = process_text_with_ollama(transcript)
+        processed_text = process_text_with_ollama(transcript, correction_model)
         
         # Get suggestions from knowledge base
         suggestions = None
@@ -364,14 +396,15 @@ async def transcribe_only(
 async def correct_text_only(request: ProcessRequest):
     """Correct text only, without transcription."""
     try:
-        processed_text = process_text_with_ollama(request.text)
-        
+        model = getattr(request, 'correction_model', None)
+        processed_text = process_text_with_ollama(request.text, model)
+
         return {
             "original_text": request.text,
             "corrected_text": processed_text,
-            "correction_model": "phi3.5:3.8b (primary German model)"
+            "correction_model": model or "auto"
         }
-        
+
     except Exception as e:
         print(f"Text correction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -391,20 +424,23 @@ async def get_asr_models():
 
 @app.get("/models/correction")
 async def get_correction_models():
-    """Get available text correction models."""
-    return {
-        "llama3.1:8b": {
-            "name": "Llama 3.1 8B",
-            "status": "active",
-            "language": "german",
-            "quality": "excellent",
-            "size": "4.9GB"
-        },
-        "llama3.2:3b": {
-            "name": "Llama 3.2 3B", 
-            "status": "available",
-            "language": "german",
-            "quality": "good",
-            "size": "2.0GB"
-        }
-    }
+    """Return correction models: which are installed vs recommended."""
+    installed = []
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        if r.status_code == 200:
+            names = {m["name"] for m in r.json().get("models", [])}
+            installed = [m for m in GERMAN_CORRECTION_MODELS if m in names]
+    except Exception:
+        pass
+
+    catalog = [
+        {"id": "gemma3:4b",    "label": "Gemma 3 4B",     "size": "~3.3GB",  "note": "Best German, Google 2025"},
+        {"id": "qwen2.5:7b",   "label": "Qwen 2.5 7B",    "size": "~4.7GB",  "note": "Strong multilingual"},
+        {"id": "mistral:7b",   "label": "Mistral 7B",     "size": "~4.1GB",  "note": "Solid German"},
+        {"id": "llama3.2:3b",  "label": "Llama 3.2 3B",   "size": "~2.0GB",  "note": "Fast fallback"},
+    ]
+    for entry in catalog:
+        entry["installed"] = entry["id"] in installed
+
+    return {"models": catalog, "installed": installed}

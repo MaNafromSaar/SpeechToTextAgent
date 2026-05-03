@@ -153,8 +153,8 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-300 mb-2">Whisper Model</label>
                     <select id="whisperModel" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
-                        <option value="large-v3" selected>Large-v3 (German Optimized)</option>
-                        <option value="medium">Medium (Smaller, Faster)</option>
+                        <option value="whisper-large" selected>Large-v3 (Best German)</option>
+                        <option value="whisper-medium">Medium (Faster)</option>
                     </select>
                 </div>
                 <div>
@@ -231,11 +231,14 @@
                 
                 <!-- German Correction Model -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-2">German Correction Model</label>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Correction Model</label>
                     <select id="textModel" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
-                        <option value="mistral:7b" selected>Mistral 7B (German)</option>
-                        <option value="phi">Phi (Smaller, Fast)</option>
+                        <option value="gemma3:4b">Gemma 3 4B (Best German, ~3.3GB)</option>
+                        <option value="qwen2.5:7b">Qwen 2.5 7B (~4.7GB)</option>
+                        <option value="mistral:7b">Mistral 7B (~4.1GB)</option>
+                        <option value="llama3.2:3b">Llama 3.2 3B (Fast, ~2GB)</option>
                     </select>
+                    <div id="textModelHint" style="font-size:11px;color:#f39c12;margin-top:3px;"></div>
                 </div>
                 
                 <!-- Target Language (for translation) -->
@@ -402,6 +405,9 @@
 
         async setupAudioDevices() {
             try {
+                // Request permission first so browser reveals device labels
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioInput = document.getElementById('audioInput');
                 audioInput.innerHTML = '<option value="">Select Input Device...</option>';
@@ -413,7 +419,7 @@
                 });
                 this.devicesInitialized = true;
             } catch (err) {
-                alert('Could not enumerate audio devices: ' + err);
+                alert('Could not access microphone: ' + err);
             }
         }
 
@@ -558,8 +564,9 @@
             this.showProcessingStatus('Uploading audio...');
             const formData = new FormData();
             formData.append('file', blob, 'recording.wav');
-            formData.append('model', document.getElementById('whisperModel').value);
+            formData.append('asr_model', document.getElementById('whisperModel').value);
             formData.append('language', document.getElementById('language').value);
+            formData.append('correction_model', document.getElementById('textModel').value);
             try {
                 const response = await fetch(`${API_BASE_URL}/transcribe`, {
                     method: 'POST',
@@ -567,9 +574,9 @@
                 });
                 if (!response.ok) throw new Error('Transcription failed');
                 const result = await response.json();
-                this.displayTranscription(result.transcription);
-                if (document.getElementById('autoProcess').checked) {
-                    this.processText(result.transcription);
+                this.displayTranscription(result.original_text);
+                if (document.getElementById('autoProcess').checked && result.processed_text) {
+                    this.displayProcessedText(result.processed_text);
                 }
             } catch (err) {
                 alert('Transcription error: ' + err);
@@ -586,21 +593,16 @@
 
         async processText(text) {
             this.showProcessingStatus('Processing text...');
-            const body = {
-                text,
-                task: document.getElementById('taskType').value,
-                model: document.getElementById('textModel').value,
-                target_language: document.getElementById('targetLanguage').value
-            };
+            const model = document.getElementById('textModel').value;
             try {
-                const response = await fetch(`${API_BASE_URL}/process_text`, {
+                const response = await fetch(`${API_BASE_URL}/correct-text`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
+                    body: JSON.stringify({ text, correction_model: model })
                 });
                 if (!response.ok) throw new Error('Text processing failed');
                 const result = await response.json();
-                this.displayProcessedText(result.processed_text);
+                this.displayProcessedText(result.corrected_text);
             } catch (err) {
                 alert('Text processing error: ' + err);
             } finally {
@@ -664,8 +666,9 @@
             this.showProcessingStatus('Uploading file...');
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('model', document.getElementById('whisperModel').value);
+            formData.append('asr_model', document.getElementById('whisperModel').value);
             formData.append('language', document.getElementById('language').value);
+            formData.append('correction_model', document.getElementById('textModel').value);
             try {
                 const response = await fetch(`${API_BASE_URL}/transcribe`, {
                     method: 'POST',
@@ -673,9 +676,9 @@
                 });
                 if (!response.ok) throw new Error('Transcription failed');
                 const result = await response.json();
-                this.displayTranscription(result.transcription);
-                if (document.getElementById('autoProcess').checked) {
-                    this.processText(result.transcription);
+                this.displayTranscription(result.original_text);
+                if (document.getElementById('autoProcess').checked && result.processed_text) {
+                    this.displayProcessedText(result.processed_text);
                 }
             } catch (err) {
                 alert('File upload error: ' + err);
@@ -725,36 +728,44 @@
         async checkModelStatus() {
             this.showProcessingStatus('Checking model status...');
             try {
-                const response = await fetch(`${API_BASE_URL}/model_status`);
-                if (!response.ok) throw new Error('Failed to check model status');
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (!response.ok) throw new Error('Failed to check status');
                 const result = await response.json();
-                document.getElementById('modelStatus').textContent = result.status;
+                const whisperOk = result.whisper === 'available' ? '✅' : '❌';
+                const ollamaOk = result.ollama === 'available' ? '✅' : '❌';
+                const models = result.available_german_models;
+                const modelList = models && models.length ? models.join(', ') : 'none installed';
+                document.getElementById('modelStatus').textContent =
+                    `${whisperOk} Whisper  ${ollamaOk} Ollama  — Correction models: ${modelList}`;
+                // Mark installed in selector
+                if (models) {
+                    const sel = document.getElementById('textModel');
+                    const hint = document.getElementById('textModelHint');
+                    if (models.length === 0) {
+                        hint.textContent = '⚠ No model installed. Run: docker exec -it ollama ollama pull gemma3:4b';
+                    } else {
+                        const first = Array.from(sel.options).find(o => models.includes(o.value));
+                        if (first) sel.value = first.value;
+                        hint.textContent = `✅ ${models.length} model(s) ready`;
+                        hint.style.color = '#10b981';
+                    }
+                }
             } catch (err) {
-                document.getElementById('modelStatus').textContent = 'Error checking model status';
+                document.getElementById('modelStatus').textContent = 'Server not reachable';
             } finally {
                 this.hideProcessingStatus();
             }
         }
 
-        async installModels() {
-            this.showProcessingStatus('Installing models...');
-            try {
-                const response = await fetch(`${API_BASE_URL}/install_models`, { method: 'POST' });
-                if (!response.ok) throw new Error('Failed to install models');
-                const result = await response.json();
-                document.getElementById('modelStatus').textContent = result.status;
-            } catch (err) {
-                document.getElementById('modelStatus').textContent = 'Error installing models';
-            } finally {
-                this.hideProcessingStatus();
-            }
+        installModels() {
+            document.getElementById('modelStatus').innerHTML =
+                'To install: <code style="color:#f59e0b">docker exec -it ollama ollama pull gemma3:4b</code> (3.3 GB)';
         }
-    }
-        // In the actual patch, all methods from app.js should be pasted here.
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        new STTAudioRecorder();
+        const recorder = new STTAudioRecorder();
+        recorder.checkModelStatus();
     });
     </script>
 </body>

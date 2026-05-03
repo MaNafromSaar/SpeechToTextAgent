@@ -224,15 +224,19 @@
                 <div>
                     <label for="asrModel"><strong>ASR Model:</strong></label>
                     <select id="asrModel">
-                        <option value="whisper">Whisper Large-v3 (German Optimized)</option>
+                        <option value="whisper-large">Whisper Large-v3 (Best German accuracy)</option>
+                        <option value="whisper-medium">Whisper Medium (Faster, good German)</option>
                     </select>
                 </div>
                 <div>
                     <label for="correctionModel"><strong>German Correction Model:</strong></label>
                     <select id="correctionModel">
-                        <option value="phi3.5:3.8b">Phi 3.5 3.8B (Primary - Best German)</option>
-                        <option value="mistral:7b">Mistral 7B (Secondary German)</option>
+                        <option value="gemma3:4b">Gemma 3 4B — Best German (Google 2025, ~3.3GB)</option>
+                        <option value="qwen2.5:7b">Qwen 2.5 7B — Strong multilingual (~4.7GB)</option>
+                        <option value="mistral:7b">Mistral 7B — Solid German (~4.1GB)</option>
+                        <option value="llama3.2:3b">Llama 3.2 3B — Fast fallback (~2GB)</option>
                     </select>
+                    <div id="modelInstallHint" style="margin-top:6px;font-size:12px;color:#e67e22;"></div>
                 </div>
             </div>
         </div>
@@ -345,7 +349,37 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeDevices();
             setupEventListeners();
+            checkCorrectionModels();
         });
+
+        // Check which correction models are installed and annotate the selector
+        async function checkCorrectionModels() {
+            try {
+                const r = await fetch('http://localhost:8000/models/correction');
+                if (!r.ok) return;
+                const data = await r.json();
+                const select = document.getElementById('correctionModel');
+                const hint = document.getElementById('modelInstallHint');
+                const installed = data.installed || [];
+
+                // Mark options
+                Array.from(select.options).forEach(opt => {
+                    const isInstalled = installed.includes(opt.value);
+                    opt.text = opt.text.replace(/ \u2714$/, '');
+                    if (isInstalled) opt.text += ' \u2714';
+                });
+
+                if (installed.length === 0) {
+                    hint.innerHTML = '\u26a0\ufe0f No correction model installed. Run in terminal: <code>docker exec -it ollama ollama pull gemma3:4b</code>';
+                } else {
+                    // Pre-select first installed model
+                    const firstInstalled = Array.from(select.options).find(o => installed.includes(o.value));
+                    if (firstInstalled) select.value = firstInstalled.value;
+                    hint.innerHTML = `\u2705 ${installed.length} model(s) ready`;
+                    hint.style.color = '#27ae60';
+                }
+            } catch(e) { /* server not reachable */ }
+        }
 
         // Device initialization
         async function initializeDevices() {
@@ -546,7 +580,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text: currentTranscription })
+                    body: JSON.stringify({ text: currentTranscription, correction_model: correctionModel })
                 });
 
                 if (response.ok) {
@@ -576,6 +610,8 @@
             try {
                 const formData = new FormData();
                 formData.append('file', currentAudioBlob, 'audio.wav');
+                formData.append('asr_model', document.getElementById('asrModel').value);
+                formData.append('correction_model', document.getElementById('correctionModel').value);
 
                 const response = await fetch('http://localhost:8000/transcribe', {
                     method: 'POST',
