@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  stt-core:
+    build:
+      context: ./stt-core
+      dockerfile: Dockerfile.core
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WHISPER_CACHE=/app/whisper_cache
+      - OLLAMA_BASE_URL=http://ollama:11434
+    networks:
+      - stt-network
+    volumes:
+      # Audio device access
+      - /dev/snd:/dev/snd:rw
+      # Persistent Whisper model cache
+      - ./whisper_cache:/root/.cache/whisper
+      - whisper_model_cache:/app/whisper_cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - stt-network
+
+volumes:
+  ollama_data:
+  whisper_model_cache:
+    driver: local
+
+networks:
+  stt-network:
+    driver: bridge
